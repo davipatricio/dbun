@@ -21,7 +21,8 @@
     "lint": "oxlint src",
     "fmt": "oxfmt src",
     "typecheck": "tsgo --noEmit",
-    "clean": "rm -rf dist .turbo"
+    "clean": "rm -rf dist .turbo",
+    "test": "bun test"
   },
   "dependencies": {
     "@dbun/types": "workspace:*",
@@ -31,6 +32,14 @@
     "@dbun/structures": "workspace:*",
     "@dbun/interactions": "workspace:*",
     "@dbun/observability": "workspace:*"
+  },
+  "peerDependencies": {
+    "@dbun/ipc": "workspace:*"
+  },
+  "peerDependenciesMeta": {
+    "@dbun/ipc": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "tsdown": "catalog:",

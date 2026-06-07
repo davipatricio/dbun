@@ -18,7 +18,8 @@ bun run clean    # rm -rf dist .turbo
 ## Key Exports
 
 - `Client` - Main bot client with top-level entity managers
-- `ClientOptions` - Options interface (`token`, `intents`, `cache`, `observability`)
+- `ClientOptions` - Options interface (`token`, `intents`, `cache`, `observability`, `ipc`)
+- `ClientIPCOptions` - IPC configuration for cross-machine sharding (`mode`, `adapter`, `totalShards`, etc.)
 - `ClientCacheOptions` - Cache configuration (`adapter` factory, `resources` per-entity TTL)
 - `CacheResourceConfig` - Per-resource TTL/max (`maxAge`, `max`)
 - `Intents` - Helper to compute Gateway intent bitfield
@@ -114,7 +115,49 @@ const cachedChannel = await client.channels.cache.get("channelId");
 
 ### Lifecycle
 
-- `destroy()` calls `stop()` on all manager caches to clear sweep timers, then disconnects the shard
+- `destroy()` calls `stop()` on all manager caches to clear sweep timers, then disconnects the shard or gateway manager
+
+### IPC / Cross-Machine Sharding
+
+When `ipc` is set in `ClientOptions`, `login()` creates a `GatewayManager` from `@dbun/ipc` instead of a `ShardManager`. This enables distributing shards across processes or machines.
+
+**Coordinator mode** — runs the full Client with cache, REST, interactions. Events from all workers feed into `handleDispatch`:
+
+```typescript
+import { Client, Intents } from "@dbun/client";
+import { redisPubSubAdapter } from "@dbun/ipc";
+
+const client = new Client({
+  token: process.env.DISCORD_TOKEN,
+  intents: Intents.Guilds | Intents.GuildMessages,
+  ipc: {
+    mode: "coordinator",
+    adapter: await redisPubSubAdapter({ url: "redis://redis:6379" }),
+    totalShards: "auto",
+    assignment: "auto",
+  },
+});
+
+client.on("messageCreate", (msg) => console.log(msg.content));
+await client.login();
+```
+
+**Worker mode** — lightweight shard runner, no cache/REST:
+
+```typescript
+const client = new Client({
+  token: process.env.DISCORD_TOKEN,
+  intents: Intents.Guilds | Intents.GuildMessages,
+  ipc: {
+    mode: "worker",
+    adapter: await redisPubSubAdapter({ url: "redis://redis:6379" }),
+    workerId: "worker-1",
+  },
+});
+await client.login();
+```
+
+Workers don't need a full Client. Use `Worker` from `@dbun/ipc` directly for lighter processes.
 
 ## Common Patterns
 
@@ -143,6 +186,7 @@ await client.destroy();
 ## Dependencies
 
 - `@dbun/types`, `@dbun/rest`, `@dbun/ws`, `@dbun/cache`, `@dbun/structures`, `@dbun/interactions`, `@dbun/observability` (all workspace:*)
+- `@dbun/ipc` (optional peer, workspace:*) — for cross-machine sharding via `ipc` option
 
 ## Testing
 

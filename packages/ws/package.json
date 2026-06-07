@@ -21,7 +21,8 @@
     "lint": "oxlint src",
     "fmt": "oxfmt src",
     "typecheck": "tsgo --noEmit",
-    "clean": "rm -rf dist .turbo"
+    "clean": "rm -rf dist .turbo",
+    "test": "bun test"
   },
   "dependencies": {
     "@dbun/types": "workspace:*"

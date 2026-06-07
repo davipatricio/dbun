@@ -57,7 +57,7 @@ export class ApplicationCommandManager {
   }
 
   async bulkOverwrite(
-    commands: RESTPutAPIApplicationCommandsJSONBody[],
+    commands: RESTPutAPIApplicationCommandsJSONBody,
     guildId?: string,
   ): Promise<APIApplicationCommand[]> {
     const path = guildId

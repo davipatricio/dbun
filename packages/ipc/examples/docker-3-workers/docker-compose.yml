@@ -1,0 +1,71 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  coordinator:
+    build:
+      context: ../../
+      dockerfile: packages/ipc/examples/docker-3-workers/Dockerfile
+    command: bun run src/coordinator.ts
+    environment:
+      DISCORD_TOKEN: ${DISCORD_TOKEN}
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker-1:
+    build:
+      context: ../../
+      dockerfile: packages/ipc/examples/docker-3-workers/Dockerfile
+    command: bun run src/worker.ts
+    environment:
+      DISCORD_TOKEN: ${DISCORD_TOKEN}
+      REDIS_URL: redis://redis:6379
+      WORKER_ID: worker-1
+    depends_on:
+      redis:
+        condition: service_healthy
+      coordinator:
+        condition: service_started
+    restart: unless-stopped
+
+  worker-2:
+    build:
+      context: ../../
+      dockerfile: packages/ipc/examples/docker-3-workers/Dockerfile
+    command: bun run src/worker.ts
+    environment:
+      DISCORD_TOKEN: ${DISCORD_TOKEN}
+      REDIS_URL: redis://redis:6379
+      WORKER_ID: worker-2
+    depends_on:
+      redis:
+        condition: service_healthy
+      coordinator:
+        condition: service_started
+    restart: unless-stopped
+
+  worker-3:
+    build:
+      context: ../../
+      dockerfile: packages/ipc/examples/docker-3-workers/Dockerfile
+    command: bun run src/worker.ts
+    environment:
+      DISCORD_TOKEN: ${DISCORD_TOKEN}
+      REDIS_URL: redis://redis:6379
+      WORKER_ID: worker-3
+    depends_on:
+      redis:
+        condition: service_healthy
+      coordinator:
+        condition: service_started
+    restart: unless-stopped

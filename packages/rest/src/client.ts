@@ -1,13 +1,20 @@
 import { DiscordAPIError } from "./errors.js";
 import { RateLimiter, type RateLimiterOptions } from "./rate-limiter.js";
 
+export interface ProxyConfig {
+  url: string;
+  headers?: Record<string, string>;
+}
+
 export interface RESTClientOptions {
   token: string;
   version?: number;
+  baseURL?: string;
   userAgent?: string;
   retries?: number;
   retryDelay?: number;
   rateLimiter?: RateLimiterOptions;
+  proxy?: string | ProxyConfig;
 }
 
 const DEFAULT_API_VERSION = 10;
@@ -23,6 +30,7 @@ export class RESTClient {
   private baseRetryDelay: number;
   private rateLimiter: RateLimiter;
   private baseUrl: string;
+  private proxy?: string | ProxyConfig;
 
   constructor(options: RESTClientOptions) {
     this.token = options.token;
@@ -31,7 +39,8 @@ export class RESTClient {
     this.maxRetries = options.retries ?? DEFAULT_RETRIES;
     this.baseRetryDelay = options.retryDelay ?? DEFAULT_RETRY_DELAY;
     this.rateLimiter = new RateLimiter(options.rateLimiter);
-    this.baseUrl = `https://discord.com/api/v${this.version}`;
+    this.baseUrl = options.baseURL ?? `https://discord.com/api/v${this.version}`;
+    this.proxy = options.proxy;
 
     this.validateToken();
   }
@@ -113,7 +122,8 @@ export class RESTClient {
           method,
           headers,
           body: body instanceof FormData ? body : body ? JSON.stringify(body) : undefined,
-        });
+          proxy: this.proxy,
+        } as RequestInit & { proxy?: string | ProxyConfig });
       } catch (err) {
         lastError = new DiscordAPIError(0, {
           message: `Network error: ${err instanceof Error ? err.message : String(err)}`,

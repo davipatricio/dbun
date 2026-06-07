@@ -1,5 +1,6 @@
 import { RESTClient, ApplicationCommandManager } from "@dbun/rest";
 import { ShardManager } from "@dbun/ws";
+import type { EncodingMode, CompressionMode } from "@dbun/ws";
 import { CacheManager, MemoryAdapter, type CacheAdapter } from "@dbun/cache";
 import { InteractionRouter } from "@dbun/interactions";
 import { DBunTracer, DBunMetrics } from "@dbun/observability";
@@ -38,6 +39,7 @@ import type {
   GatewayStageInstanceCreateDispatchData,
   GatewayStageInstanceDeleteDispatchData,
 } from "@dbun/types";
+import type { IPCAdapter, ShardRange, AssignmentStrategy } from "@dbun/ipc";
 import {
   GuildManager,
   ChannelManager,
@@ -77,6 +79,22 @@ export interface ClientCacheOptions {
   };
 }
 
+export interface ClientIPCOptions {
+  mode: "coordinator" | "worker";
+  adapter: IPCAdapter;
+  workerId?: string;
+  totalShards?: number | "auto";
+  assignment?: "auto" | Record<string, ShardRange> | AssignmentStrategy;
+  shards?: ShardRange;
+  presence?: unknown;
+  encoding?: EncodingMode;
+  compress?: CompressionMode;
+  healthCheckInterval?: number;
+  healthCheckTimeout?: number;
+  maxConcurrency?: number;
+  heartbeatInterval?: number;
+}
+
 export interface ClientOptions {
   token: string;
   intents: GatewayIntentBits[];
@@ -86,6 +104,7 @@ export interface ClientOptions {
   observability?: {
     enabled?: boolean;
   };
+  ipc?: ClientIPCOptions;
 }
 
 export class Client {
@@ -108,10 +127,12 @@ export class Client {
   readonly bans: BanManager;
 
   private shardManager: ShardManager | null = null;
+  private gatewayManager: import("@dbun/ipc").GatewayManager | null = null;
   private ready = false;
   private eventHandlers = new Map<keyof ClientEvents | string, ((...args: any[]) => void)[]>();
   private managers: CacheManager[] = [];
   private applicationId?: string;
+  private ipcOptions?: ClientIPCOptions;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   on<K extends keyof ClientEvents>(event: K, handler: (...args: ClientEvents[K]) => void): this;
@@ -147,6 +168,7 @@ export class Client {
     this.token = options.token;
     this.intents = options.intents;
     this.applicationId = options.applicationId;
+    this.ipcOptions = options.ipc;
 
     this.rest = new RESTClient({ token: options.token });
 
@@ -230,6 +252,74 @@ export class Client {
   }
 
   async login(): Promise<void> {
+    if (this.ipcOptions) {
+      const { GatewayManager } = await import("@dbun/ipc");
+      const intentsValue = this.intents.reduce((a, b) => a | b, 0);
+
+      if (this.ipcOptions.mode === "coordinator") {
+        this.gatewayManager = new GatewayManager({
+          mode: "coordinator",
+          adapter: this.ipcOptions.adapter,
+          token: this.token,
+          totalShards: this.ipcOptions.totalShards,
+          assignment: this.ipcOptions.assignment,
+          healthCheckInterval: this.ipcOptions.healthCheckInterval,
+          healthCheckTimeout: this.ipcOptions.healthCheckTimeout,
+          maxConcurrency: this.ipcOptions.maxConcurrency,
+        });
+
+        this.gatewayManager.on("shard:ready", (_shardId: number, _workerId: string) => {
+          if (!this.ready) {
+            this.ready = true;
+            this.emit("ready", { client: this });
+          }
+        });
+
+        this.gatewayManager.on("shard:event", (_shardId: number, event: string, data: unknown) => {
+          this.handleDispatch(event, data);
+        });
+
+        this.gatewayManager.on("debug", (msg: string) => {
+          this.emit("debug", msg);
+        });
+
+        this.gatewayManager.on("shard:error", (_shardId: number, error: unknown) => {
+          this.emit("error", error as Error);
+        });
+
+        this.gatewayManager.on("worker:join", (workerId: string) => {
+          this.emit("debug", `IPC worker joined: ${workerId}`);
+        });
+
+        this.gatewayManager.on("worker:leave", (workerId: string) => {
+          this.emit("debug", `IPC worker left: ${workerId}`);
+        });
+
+        await this.gatewayManager.start();
+      } else {
+        this.gatewayManager = new GatewayManager({
+          mode: "worker",
+          adapter: this.ipcOptions.adapter,
+          workerId: this.ipcOptions.workerId!,
+          token: this.token,
+          intents: intentsValue,
+          shards: this.ipcOptions.shards,
+          totalShards: typeof this.ipcOptions.totalShards === "number" ? this.ipcOptions.totalShards : undefined,
+          presence: this.ipcOptions.presence,
+          encoding: this.ipcOptions.encoding,
+          compress: this.ipcOptions.compress,
+          heartbeatInterval: this.ipcOptions.heartbeatInterval,
+        });
+
+        this.gatewayManager.on("debug", (msg: string) => {
+          this.emit("debug", msg);
+        });
+
+        await this.gatewayManager.start();
+      }
+      return;
+    }
+
     const intentsValue = this.intents.reduce((a, b) => a | b, 0);
 
     this.shardManager = new ShardManager({
@@ -261,6 +351,10 @@ export class Client {
   async destroy(): Promise<void> {
     for (const manager of this.managers) {
       await manager.stop();
+    }
+    if (this.gatewayManager) {
+      await this.gatewayManager.stop();
+      this.gatewayManager = null;
     }
     await this.shardManager?.destroy();
     this.shardManager = null;

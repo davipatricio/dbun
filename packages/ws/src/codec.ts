@@ -19,7 +19,7 @@ function encodeETF(data: unknown): Buffer {
 
 function writeTerm(value: unknown, parts: Buffer[]): void {
   if (value === null || value === undefined) {
-    parts.push(Buffer.from([131, 100, 0, 3, 110, 105, 108]));
+    parts.push(Buffer.from([100, 0, 3, 110, 105, 108]));
     return;
   }
   if (typeof value === "boolean") {

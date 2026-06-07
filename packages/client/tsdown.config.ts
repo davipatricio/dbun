@@ -16,6 +16,7 @@ export default defineConfig({
       "@dbun/structures",
       "@dbun/interactions",
       "@dbun/observability",
+      "@dbun/ipc",
     ],
   },
 });
