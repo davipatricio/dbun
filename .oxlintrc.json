@@ -1,0 +1,18 @@
+{
+  "ignorePatterns": ["**/dist/**", "**/node_modules/**", "**/.turbo/**"],
+  "plugins": ["typescript", "import"],
+  "rules": {
+    "no-unused-vars": "warn",
+    "no-console": "warn",
+    "eqeqeq": "error",
+    "prefer-const": "error",
+    "no-var": "error",
+    "no-case-declarations": "error",
+    "no-self-compare": "error",
+    "no-template-curly-in-string": "error",
+    "default-case-last": "warn",
+    "typescript/no-non-null-asserted-optional-chain": "error",
+    "typescript/no-explicit-any": "warn",
+    "import/no-duplicates": "error"
+  }
+}

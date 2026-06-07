@@ -1,0 +1,22 @@
+{
+  "name": "@dbun/playground",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run src/index.ts",
+    "build": "tsdown",
+    "lint": "oxlint src",
+    "fmt": "oxfmt src",
+    "typecheck": "tsgo --noEmit",
+    "clean": "rm -rf dist .turbo"
+  },
+  "dependencies": {
+    "@dbun/client": "workspace:*",
+    "@dbun/types": "workspace:*"
+  },
+  "devDependencies": {
+    "tsdown": "catalog:",
+    "@types/bun": "catalog:"
+  }
+}

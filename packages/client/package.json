@@ -1,0 +1,39 @@
+{
+  "name": "@dbun/client",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts",
+      "types": "./src/index.ts"
+    },
+    "./*": {
+      "import": "./src/*.ts",
+      "types": "./src/*.ts"
+    }
+  },
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "lint": "oxlint src",
+    "fmt": "oxfmt src",
+    "typecheck": "tsgo --noEmit",
+    "clean": "rm -rf dist .turbo"
+  },
+  "dependencies": {
+    "@dbun/types": "workspace:*",
+    "@dbun/rest": "workspace:*",
+    "@dbun/ws": "workspace:*",
+    "@dbun/cache": "workspace:*",
+    "@dbun/structures": "workspace:*",
+    "@dbun/interactions": "workspace:*",
+    "@dbun/observability": "workspace:*"
+  },
+  "devDependencies": {
+    "tsdown": "catalog:",
+    "@types/bun": "catalog:"
+  }
+}

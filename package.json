@@ -1,0 +1,36 @@
+{
+  "name": "@dbun/monorepo",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.4.0",
+  "workspaces": ["packages/*", "apps/*"],
+    "catalog": {
+      "tsdown": "^0.22.0",
+      "oxlint": "^0.16.0",
+      "oxfmt": "^0.16.0",
+      "turbo": "^2.5.0",
+      "typescript": "^5.8.0",
+      "@types/bun": "^1.3.0",
+      "ioredis": "^5.6.0",
+      "@opentelemetry/sdk-node": "^0.201.0",
+      "@opentelemetry/api": "^1.9.0"
+    },
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "oxlint .",
+    "lint:fix": "oxlint . --fix",
+    "fmt": "oxfmt .",
+    "fmt:check": "oxfmt --check .",
+    "typecheck": "tsgo --noEmit",
+    "test": "bun test",
+    "clean": "turbo clean"
+  },
+  "devDependencies": {
+    "turbo": "catalog:",
+    "typescript": "catalog:",
+    "@types/bun": "catalog:",
+    "oxlint": "catalog:",
+    "oxfmt": "catalog:"
+  }
+}
