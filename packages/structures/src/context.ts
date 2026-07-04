@@ -1,4 +1,7 @@
-import type { CacheManager } from "@dbun/cache";
+import type { HydratingCache } from "@dbun/cache";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyCache = HydratingCache<any>;
 
 export interface ClientContext {
   rest: {
@@ -9,14 +12,16 @@ export interface ClientContext {
     delete<T = void>(path: string): Promise<T>;
   };
   cache: {
-    guilds: CacheManager;
-    channels: CacheManager;
-    messages: CacheManager;
-    users: CacheManager;
-    members: CacheManager;
-    roles: CacheManager;
-    emojis: CacheManager;
-    voiceStates: CacheManager;
-    bans: CacheManager;
+    guilds: AnyCache;
+    channels: AnyCache;
+    threads: AnyCache;
+    messages: AnyCache;
+    users: AnyCache;
+    members: AnyCache;
+    roles: AnyCache;
+    emojis: AnyCache;
+    voiceStates: AnyCache;
+    bans: AnyCache;
+    threadMembers: AnyCache;
   };
 }

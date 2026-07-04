@@ -6,7 +6,12 @@ import type {
 } from "@dbun/types";
 import { GatewayCloseCodes, GatewayOpcodes } from "@dbun/types";
 import { HeartbeatManager } from "./heartbeat.js";
-import { type Decompressor, createDecompressor, type CompressionMode } from "./compression.js";
+import {
+  type Decompressor,
+  createDecompressor,
+  type CompressionMode,
+  normalizeCompressionMode,
+} from "./compression.js";
 import { encode, decode, type EncodingMode } from "./codec.js";
 import type { GatewayUrlOptions } from "./gateway-url.js";
 
@@ -44,6 +49,7 @@ export class Shard {
   private handlers = new Map<string, Set<EventHandler>>();
   private connected = false;
   private decompressor: Decompressor | null;
+  private payloadDecompressor: Decompressor | null;
   private encoding: EncodingMode;
   private compress: CompressionMode;
   private identifyCompress: boolean;
@@ -61,9 +67,14 @@ export class Shard {
     this.totalShards = options.totalShards;
     this.presence = options.presence;
     this.encoding = options.encoding ?? "json";
-    this.compress = options.compress ?? null;
-    this.decompressor = createDecompressor(this.compress);
-    this.identifyCompress = this.encoding === "json" && !this.compress;
+    this.compress = normalizeCompressionMode(options.compress ?? null);
+    this.decompressor =
+      this.compress === "zlib-stream" || this.compress === "zstd-stream"
+        ? createDecompressor(this.compress)
+        : null;
+    this.payloadDecompressor =
+      this.compress === "zlib-payload" ? createDecompressor("zlib-payload") : null;
+    this.identifyCompress = this.payloadDecompressor !== null;
     this.heartbeat = new HeartbeatManager((msg) => this.emit("debug", msg));
   }
 
@@ -100,7 +111,10 @@ export class Shard {
       const { fetchGatewayUrl } = await import("./gateway-url.js");
       const opts: GatewayUrlOptions = {
         encoding: this.encoding,
-        compress: this.compress ?? undefined,
+        compress:
+          this.compress === "zlib-stream" || this.compress === "zstd-stream"
+            ? this.compress
+            : undefined,
       };
       url = await fetchGatewayUrl(this.token, opts);
     }
@@ -108,6 +122,7 @@ export class Shard {
     this.gatewayUrl = url;
     this.connected = true;
     this.decompressor?.reset();
+    this.payloadDecompressor?.reset();
     this.ws = new WebSocket(url);
 
     this.ws.addEventListener("open", () => {
@@ -144,18 +159,21 @@ export class Shard {
             ? Buffer.from(raw)
             : (raw as Buffer);
       parsed = decode(buf, "etf") as GatewayReceivePayload;
-    } else if (this.decompressor) {
+    } else {
       const buf =
         raw instanceof ArrayBuffer
           ? Buffer.from(raw)
           : typeof raw === "string"
             ? Buffer.from(raw)
             : (raw as Buffer);
-      const decompressed = this.decompressor.decompress(buf);
-      if (decompressed.length === 0) return;
-      parsed = JSON.parse(decompressed.toString()) as GatewayReceivePayload;
-    } else {
-      parsed = JSON.parse(raw as string) as GatewayReceivePayload;
+      const decompressor = this.decompressor ?? this.payloadDecompressor;
+      if (decompressor) {
+        const decompressed = decompressor.decompress(buf);
+        if (decompressed.length === 0) return;
+        parsed = JSON.parse(decompressed.toString()) as GatewayReceivePayload;
+      } else {
+        parsed = JSON.parse(buf.toString()) as GatewayReceivePayload;
+      }
     }
 
     this.handleMessage(parsed);
@@ -276,6 +294,7 @@ export class Shard {
 
     this.connected = true;
     this.decompressor?.reset();
+    this.payloadDecompressor?.reset();
     this.ws = new WebSocket(url);
 
     this.ws.addEventListener("open", () => {
@@ -349,6 +368,7 @@ export class Shard {
     this.heartbeat.stop();
     this.connected = false;
     this.decompressor?.destroy();
+    this.payloadDecompressor?.destroy();
     this.ws?.close(1000);
     this.ws = null;
   }

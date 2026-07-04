@@ -38,6 +38,8 @@ import type {
   GatewayThreadUpdateDispatchData,
   GatewayThreadDeleteDispatchData,
   GatewayThreadListSyncDispatchData,
+  GatewayThreadMemberUpdateDispatchData,
+  GatewayThreadMembersUpdateDispatchData,
 } from "@dbun/types";
 import type { Client } from "./client.js";
 
@@ -86,4 +88,6 @@ export interface ClientEvents {
   THREAD_UPDATE: [data: GatewayThreadUpdateDispatchData];
   THREAD_DELETE: [data: GatewayThreadDeleteDispatchData];
   THREAD_LIST_SYNC: [data: GatewayThreadListSyncDispatchData];
+  THREAD_MEMBER_UPDATE: [data: GatewayThreadMemberUpdateDispatchData];
+  THREAD_MEMBERS_UPDATE: [data: GatewayThreadMembersUpdateDispatchData];
 }

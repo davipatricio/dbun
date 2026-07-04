@@ -1,14 +1,14 @@
-import { CacheManager } from "@dbun/cache";
+import type { HydratingCache } from "@dbun/cache";
 import type { RESTClient } from "@dbun/rest";
 import type { ClientContext } from "@dbun/structures";
 
 export class BaseManager<T> {
-  readonly cache: CacheManager;
+  readonly cache: HydratingCache<T>;
   protected readonly rest: RESTClient;
   protected readonly namespace: string;
   protected context?: ClientContext;
 
-  constructor(rest: RESTClient, cache: CacheManager, namespace: string) {
+  constructor(rest: RESTClient, cache: HydratingCache<T>, namespace: string) {
     this.rest = rest;
     this.cache = cache;
     this.namespace = namespace;
@@ -16,6 +16,10 @@ export class BaseManager<T> {
 
   setContext(context: ClientContext): void {
     this.context = context;
+  }
+
+  add(id: string, data: unknown, options?: { partial?: boolean }): Promise<void> {
+    return this.cache.add(id, data, options);
   }
 
   async fetch(..._args: string[]): Promise<T | null> {

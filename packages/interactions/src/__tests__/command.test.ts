@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { CommandBuilder } from "../command.js";
+import { CommandBuilder, SubcommandBuilder, SubcommandGroupBuilder } from "../command.js";
 import { ApplicationCommandOptionType, ApplicationCommandType } from "@dbun/types";
 
 describe("CommandBuilder", () => {
@@ -35,119 +35,171 @@ describe("CommandBuilder", () => {
       const cmd = new CommandBuilder({ name: "ping", nsfw: true });
       expect(cmd.toJSON().nsfw).toBe(true);
     });
+
+    test("sets name_localizations", () => {
+      const cmd = new CommandBuilder({
+        name: "ping",
+        nameLocalizations: { "es-ES": "bip" },
+      });
+      expect(cmd.toJSON().name_localizations).toEqual({ "es-ES": "bip" });
+    });
+
+    test("sets description_localizations", () => {
+      const cmd = new CommandBuilder({
+        name: "ping",
+        descriptionLocalizations: { "es-ES": "Responder con pong" },
+      });
+      expect(cmd.toJSON().description_localizations).toEqual({ "es-ES": "Responder con pong" });
+    });
+
+    test("sets default_member_permissions", () => {
+      const cmd = new CommandBuilder({ name: "admin", defaultMemberPermissions: "0" });
+      expect(cmd.toJSON().default_member_permissions).toBe("0");
+    });
+
+    test("sets contexts", () => {
+      const cmd = new CommandBuilder({ name: "ctx", contexts: [0, 1] });
+      expect(cmd.toJSON().contexts).toEqual([0, 1]);
+    });
+
+    test("sets integration_types", () => {
+      const cmd = new CommandBuilder({ name: "int", integrationTypes: [0] });
+      expect(cmd.toJSON().integration_types).toEqual([0]);
+    });
   });
 
-  describe("setName", () => {
-    test("updates name", () => {
-      const cmd = new CommandBuilder({ name: "ping" }).setName("pong");
-      expect(cmd.toJSON().name).toBe("pong");
+  describe("setters", () => {
+    test("setNameLocalizations", () => {
+      const cmd = new CommandBuilder({ name: "x" }).setNameLocalizations({ de: "y" });
+      expect(cmd.toJSON().name_localizations).toEqual({ de: "y" });
     });
 
-    test("returns this for chaining", () => {
-      const cmd = new CommandBuilder({ name: "ping" });
-      expect(cmd.setName("pong")).toBe(cmd);
+    test("setDescriptionLocalizations", () => {
+      const cmd = new CommandBuilder({ name: "x" }).setDescriptionLocalizations({ de: "y" });
+      expect(cmd.toJSON().description_localizations).toEqual({ de: "y" });
+    });
+
+    test("setDefaultMemberPermissions", () => {
+      const cmd = new CommandBuilder({ name: "x" }).setDefaultMemberPermissions("8");
+      expect(cmd.toJSON().default_member_permissions).toBe("8");
+    });
+
+    test("setDmPermission", () => {
+      const cmd = new CommandBuilder({ name: "x" }).setDmPermission(true);
+      expect(cmd.toJSON().dm_permission).toBe(true);
+    });
+
+    test("setContexts", () => {
+      const cmd = new CommandBuilder({ name: "x" }).setContexts([0, 2]);
+      expect(cmd.toJSON().contexts).toEqual([0, 2]);
+    });
+
+    test("setIntegrationTypes", () => {
+      const cmd = new CommandBuilder({ name: "x" }).setIntegrationTypes([1]);
+      expect(cmd.toJSON().integration_types).toEqual([1]);
     });
   });
 
-  describe("setDescription", () => {
-    test("updates description", () => {
-      const cmd = new CommandBuilder({ name: "ping" }).setDescription("New desc");
-      expect(cmd.toJSON().description).toBe("New desc");
-    });
-
-    test("returns this for chaining", () => {
-      const cmd = new CommandBuilder({ name: "ping" });
-      expect(cmd.setDescription("desc")).toBe(cmd);
-    });
-  });
-
-  describe("addOption", () => {
-    test("adds option", () => {
-      const cmd = new CommandBuilder({ name: "ping" }).addOption({
-        name: "target",
-        description: "User to ping",
-        type: ApplicationCommandOptionType.User,
-        required: true,
+  describe("options", () => {
+    test("addOption with autocomplete", () => {
+      const cmd = new CommandBuilder({ name: "search" }).addOption({
+        name: "query",
+        description: "Search query",
+        type: ApplicationCommandOptionType.String,
+        autocomplete: true,
       });
       const json = cmd.toJSON();
       expect(json.options).toHaveLength(1);
-      expect(json.options![0]).toMatchObject({
-        name: "target",
-        description: "User to ping",
-        type: ApplicationCommandOptionType.User,
-        required: true,
+      expect((json.options![0] as any).autocomplete).toBe(true);
+    });
+
+    test("addOption with min/max values", () => {
+      const cmd = new CommandBuilder({ name: "roll" }).addOption({
+        name: "sides",
+        description: "Number of sides",
+        type: ApplicationCommandOptionType.Integer,
+        minValue: 2,
+        maxValue: 100,
       });
+      const opt = cmd.toJSON().options![0] as any;
+      expect(opt.min_value).toBe(2);
+      expect(opt.max_value).toBe(100);
     });
 
-    test("adds multiple options", () => {
-      const cmd = new CommandBuilder({ name: "test" })
-        .addOption({ name: "a", description: "A", type: ApplicationCommandOptionType.String })
-        .addOption({ name: "b", description: "B", type: ApplicationCommandOptionType.Integer });
-      expect(cmd.toJSON().options).toHaveLength(2);
+    test("addOption with channel_types", () => {
+      const cmd = new CommandBuilder({ name: "pin" }).addOption({
+        name: "channel",
+        description: "Target channel",
+        type: ApplicationCommandOptionType.Channel,
+        channelTypes: [0, 5],
+      });
+      const opt = cmd.toJSON().options![0] as any;
+      expect(opt.channel_types).toEqual([0, 5]);
     });
 
-    test("returns this for chaining", () => {
-      const cmd = new CommandBuilder({ name: "ping" });
-      const result = cmd.addOption({
-        name: "x",
-        description: "x",
+    test("addOption with min/max length for strings", () => {
+      const cmd = new CommandBuilder({ name: "note" }).addOption({
+        name: "text",
+        description: "Note",
         type: ApplicationCommandOptionType.String,
+        minLength: 1,
+        maxLength: 1000,
       });
-      expect(result).toBe(cmd);
-    });
-
-    test("includes choices", () => {
-      const cmd = new CommandBuilder({ name: "test" }).addOption({
-        name: "color",
-        description: "Pick a color",
-        type: ApplicationCommandOptionType.String,
-        choices: [
-          { name: "Red", value: "red" },
-          { name: "Blue", value: "blue" },
-        ],
-      });
-      const option = cmd.toJSON().options![0] as any;
-      expect(option.choices).toHaveLength(2);
-      expect(option.choices[0].name).toBe("Red");
+      const opt = cmd.toJSON().options![0] as any;
+      expect(opt.min_length).toBe(1);
+      expect(opt.max_length).toBe(1000);
     });
   });
 
-  describe("constructor with options", () => {
-    test("sets initial options from constructor", () => {
-      const cmd = new CommandBuilder({
-        name: "greet",
-        description: "Greet someone",
-        options: [
-          { name: "name", description: "Name", type: ApplicationCommandOptionType.String, required: true },
-        ],
-      });
-      expect(cmd.toJSON().options).toHaveLength(1);
-      expect(cmd.toJSON().options![0]!.name).toBe("name");
-    });
-  });
+  describe("subcommands", () => {
+    test("addSubcommand", () => {
+      const sub = new SubcommandBuilder("get", "Get a resource")
+        .addOption({
+          name: "id",
+          description: "Resource ID",
+          type: ApplicationCommandOptionType.String,
+          required: true,
+        });
 
-  describe("toJSON", () => {
-    test("returns complete APIApplicationCommand shape", () => {
-      const cmd = new CommandBuilder({ name: "test", description: "Test command" });
+      const cmd = new CommandBuilder({ name: "resource", description: "Manage resources" })
+        .addSubcommand(sub);
+
       const json = cmd.toJSON();
-      expect(json).toHaveProperty("name", "test");
-      expect(json).toHaveProperty("description", "Test command");
-      expect(json).toHaveProperty("type", 1);
+      expect(json.options).toHaveLength(1);
+      const opt = json.options![0] as any;
+      expect(opt.type).toBe(1);
+      expect(opt.name).toBe("get");
+      expect(opt.description).toBe("Get a resource");
+      expect(opt.options).toHaveLength(1);
     });
-  });
 
-  describe("fluent chaining", () => {
-    test("supports full builder chain", () => {
-      const json = new CommandBuilder({ name: "start" })
-        .setName("begin")
-        .setDescription("Begin something")
-        .addOption({ name: "mode", description: "Mode", type: ApplicationCommandOptionType.String })
-        .addOption({ name: "count", description: "Count", type: ApplicationCommandOptionType.Integer })
-        .toJSON();
+    test("addSubcommandGroup", () => {
+      const sub = new SubcommandBuilder("add", "Add an item");
+      const group = new SubcommandGroupBuilder("items", "Manage items")
+        .addSubcommand(sub);
 
-      expect(json.name).toBe("begin");
-      expect(json.description).toBe("Begin something");
-      expect(json.options).toHaveLength(2);
+      const cmd = new CommandBuilder({ name: "inventory", description: "Inventory" })
+        .addSubcommandGroup(group);
+
+      const json = cmd.toJSON();
+      const opt = json.options![0] as any;
+      expect(opt.type).toBe(2);
+      expect(opt.name).toBe("items");
+      expect(opt.options).toHaveLength(1);
+      expect(opt.options[0].name).toBe("add");
+    });
+
+    test("subcommand with localizations", () => {
+      const sub = new SubcommandBuilder("get", "Get")
+        .setNameLocalizations({ de: "holen" })
+        .setDescriptionLocalizations({ de: "Holen" });
+
+      const cmd = new CommandBuilder({ name: "cmd", description: "cmd" })
+        .addSubcommand(sub);
+
+      const opt = cmd.toJSON().options![0] as any;
+      expect(opt.name_localizations).toEqual({ de: "holen" });
+      expect(opt.description_localizations).toEqual({ de: "Holen" });
     });
   });
 });

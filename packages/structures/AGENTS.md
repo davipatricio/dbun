@@ -2,7 +2,7 @@
 
 ## Overview
 
-@dbun/structures provides Discord entity wrappers (Guild, Channel, Message, User, etc.) with methods for common operations. Each structure extends `BaseStructure` and integrates with the cache system via `ClientContext`.
+@dbun/structures provides Discord entity wrappers (Guild, Channel, Message, User, Interaction, etc.) with methods for common operations. Each structure extends `BaseStructure` and integrates with the cache system via `ClientContext`.
 
 ## Commands
 
@@ -11,7 +11,7 @@ bun run build    # tsdown build
 bun run dev      # watch mode
 bun run lint     # oxlint src
 bun run fmt      # oxfmt src
-bun run typecheck # tsgo --noEmit
+bun run typecheck # tsc --noEmit
 bun run clean    # rm -rf dist .turbo
 ```
 
@@ -23,6 +23,7 @@ bun run clean    # rm -rf dist .turbo
 - `Guild` - Guild with sub-managers: `.members`, `.channels`, `.roles`, `.emojis`, `.bans`, `.voiceStates`
 - `Channel` - Channel with sub-manager: `.messages` (fetch, send)
 - `Message`, `User`, `GuildMember`, `Role`, `Emoji`, `Sticker`, `Webhook`, `VoiceState`, `Ban`
+- `Interaction` - Interaction wrapper with getters for type, token, guild, channel, member, user, resolved data
 - `Permissions` - Permission checking with bitfield helpers
 
 ## Architecture
@@ -57,10 +58,24 @@ const sent = await channel.messages.send("Hello!");
 const sent = await channel.messages.send({ content: "Hello!", embeds: [...] });
 ```
 
+**Interaction:**
+```typescript
+const interaction = new Interaction(rawData);
+interaction.type;          // InteractionType
+interaction.token;         // string
+interaction.guildId;       // string | undefined
+interaction.channelId;     // string | undefined
+interaction.member;        // APIGuildMember | undefined
+interaction.user;          // APIUser | undefined
+interaction.resolved;      // APIInteractionDataResolved | undefined
+interaction.locale;        // string | undefined
+interaction.guildLocale;   // string | undefined
+```
+
 ### Type Naming
 
 Uses `discord-api-types/v10` naming convention:
-- `APIGuild`, `APIChannel`, `APIMessage`, `APIUser`, `APIGuildMember`, `APIRole`, `APIEmoji`, `APIBan`, `APIVoiceState`, `APISticker`, `APIWebhook`
+- `APIGuild`, `APIChannel`, `APIMessage`, `APIUser`, `APIGuildMember`, `APIRole`, `APIEmoji`, `APIBan`, `APIVoiceState`, `APISticker`, `APIWebhook`, `APIInteraction`
 
 ## Dependencies
 

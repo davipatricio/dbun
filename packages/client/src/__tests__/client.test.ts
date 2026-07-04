@@ -1,6 +1,17 @@
 import { describe, test, expect, mock } from "bun:test";
 import { Client } from "../client.js";
 import { GatewayIntentBits } from "@dbun/types";
+import {
+  Guild,
+  Channel,
+  Message,
+  User,
+  GuildMember,
+  Role,
+  Ban,
+  VoiceState,
+  Thread,
+} from "@dbun/structures";
 
 function createClient() {
   return new Client({
@@ -60,6 +71,23 @@ describe("Client", () => {
       const client = createClient();
       expect(client.isReady()).toBe(false);
     });
+
+    test("defaults encoding to 'json' and compress to null", () => {
+      const client = createClient();
+      expect((client as unknown as { encoding: string }).encoding).toBe("json");
+      expect((client as unknown as { compress: unknown }).compress).toBeNull();
+    });
+
+    test("honors explicit encoding and compress", () => {
+      const client = new Client({
+        token: "token",
+        intents: [GatewayIntentBits.Guilds],
+        encoding: "etf",
+        compress: "zlib-payload",
+      });
+      expect((client as unknown as { encoding: string }).encoding).toBe("etf");
+      expect((client as unknown as { compress: string }).compress).toBe("zlib-payload");
+    });
   });
 
   describe("event system", () => {
@@ -109,6 +137,7 @@ describe("Client", () => {
       await Bun.sleep(5);
       const user = await client.users.cache.get("user-1");
       expect(user).toBeDefined();
+      expect(user).toBeInstanceOf(User);
     });
 
     test("GUILD_CREATE caches guild, channels, members, roles", async () => {
@@ -125,12 +154,16 @@ describe("Client", () => {
       await Bun.sleep(5);
       const guild = await client.guilds.cache.get("guild-1");
       expect(guild).toBeDefined();
+      expect(guild).toBeInstanceOf(Guild);
       const channel = await client.channels.cache.get("ch-1");
       expect(channel).toBeDefined();
+      expect(channel).toBeInstanceOf(Channel);
       const member = await client.members.cache.get("guild-1:u1");
       expect(member).toBeDefined();
+      expect(member).toBeInstanceOf(GuildMember);
       const role = await client.roles.cache.get("guild-1:r1");
       expect(role).toBeDefined();
+      expect(role).toBeInstanceOf(Role);
     });
 
     test("GUILD_UPDATE updates guild in cache", async () => {
@@ -148,6 +181,7 @@ describe("Client", () => {
       await Bun.sleep(5);
       const guild = await client.guilds.cache.get("guild-1");
       expect(guild).toBeDefined();
+      expect(guild).toBeInstanceOf(Guild);
     });
 
     test("GUILD_DELETE removes guild and cascading data", async () => {
@@ -174,6 +208,7 @@ describe("Client", () => {
       await Bun.sleep(5);
       const channel = await client.channels.cache.get("ch-1");
       expect(channel).toBeDefined();
+      expect(channel).toBeInstanceOf(Channel);
     });
 
     test("CHANNEL_DELETE removes channel", async () => {
@@ -186,7 +221,7 @@ describe("Client", () => {
       expect(channel).toBe(null);
     });
 
-    test("MESSAGE_CREATE caches message", async () => {
+    test("MESSAGE_CREATE caches message as Message instance", async () => {
       const client = createClient();
       dispatch(client, "MESSAGE_CREATE", {
         id: "msg-1",
@@ -197,6 +232,46 @@ describe("Client", () => {
       await Bun.sleep(5);
       const msg = await client.messages.cache.get("msg-1");
       expect(msg).toBeDefined();
+      expect(msg).toBeInstanceOf(Message);
+      expect(msg!.content).toBe("hello");
+    });
+
+    test("MESSAGE_CREATE returns same instance on repeat get (stable identity)", async () => {
+      const client = createClient();
+      dispatch(client, "MESSAGE_CREATE", {
+        id: "msg-1",
+        content: "hello",
+        channel_id: "ch-1",
+        author: { id: "u1", username: "test", discriminator: "0" },
+      });
+      await Bun.sleep(5);
+      const msg1 = await client.messages.cache.get("msg-1");
+      const msg2 = await client.messages.cache.get("msg-1");
+      expect(msg1).toBe(msg2);
+    });
+
+    test("MESSAGE_UPDATE patches existing instance in place", async () => {
+      const client = createClient();
+      dispatch(client, "MESSAGE_CREATE", {
+        id: "msg-1",
+        content: "hello",
+        channel_id: "ch-1",
+        author: { id: "u1", username: "test", discriminator: "0" },
+      });
+      await Bun.sleep(5);
+      const msg = await client.messages.cache.get("msg-1");
+      expect(msg!.content).toBe("hello");
+
+      dispatch(client, "MESSAGE_UPDATE", {
+        id: "msg-1",
+        content: "edited",
+        channel_id: "ch-1",
+        author: { id: "u1", username: "test", discriminator: "0" },
+      });
+      await Bun.sleep(5);
+      const msgAfter = await client.messages.cache.get("msg-1");
+      expect(msgAfter).toBe(msg);
+      expect(msgAfter!.content).toBe("edited");
     });
 
     test("MESSAGE_DELETE removes message", async () => {
@@ -229,7 +304,7 @@ describe("Client", () => {
       expect(await client.messages.cache.get("m2")).toBe(null);
     });
 
-    test("GUILD_MEMBER_ADD caches member", async () => {
+    test("GUILD_MEMBER_ADD caches member as GuildMember", async () => {
       const client = createClient();
       dispatch(client, "GUILD_MEMBER_ADD", {
         guild_id: "g1",
@@ -238,6 +313,7 @@ describe("Client", () => {
       await Bun.sleep(5);
       const member = await client.members.cache.get("g1:u1");
       expect(member).toBeDefined();
+      expect(member).toBeInstanceOf(GuildMember);
     });
 
     test("GUILD_MEMBER_REMOVE deletes member", async () => {
@@ -255,7 +331,7 @@ describe("Client", () => {
       expect(await client.members.cache.get("g1:u1")).toBe(null);
     });
 
-    test("GUILD_ROLE_CREATE caches role", async () => {
+    test("GUILD_ROLE_CREATE caches role as Role", async () => {
       const client = createClient();
       dispatch(client, "GUILD_ROLE_CREATE", {
         guild_id: "g1",
@@ -264,6 +340,7 @@ describe("Client", () => {
       await Bun.sleep(5);
       const role = await client.roles.cache.get("g1:r1");
       expect(role).toBeDefined();
+      expect(role).toBeInstanceOf(Role);
     });
 
     test("GUILD_ROLE_DELETE removes role", async () => {
@@ -281,7 +358,7 @@ describe("Client", () => {
       expect(await client.roles.cache.get("g1:r1")).toBe(null);
     });
 
-    test("GUILD_BAN_ADD caches ban", async () => {
+    test("GUILD_BAN_ADD caches ban as Ban", async () => {
       const client = createClient();
       dispatch(client, "GUILD_BAN_ADD", {
         guild_id: "g1",
@@ -290,6 +367,7 @@ describe("Client", () => {
       await Bun.sleep(5);
       const ban = await client.bans.cache.get("g1:u1");
       expect(ban).toBeDefined();
+      expect(ban).toBeInstanceOf(Ban);
     });
 
     test("GUILD_BAN_REMOVE deletes ban", async () => {
@@ -307,7 +385,7 @@ describe("Client", () => {
       expect(await client.bans.cache.get("g1:u1")).toBe(null);
     });
 
-    test("VOICE_STATE_UPDATE caches voice state with guild", async () => {
+    test("VOICE_STATE_UPDATE caches voice state as VoiceState", async () => {
       const client = createClient();
       dispatch(client, "VOICE_STATE_UPDATE", {
         guild_id: "g1",
@@ -317,6 +395,7 @@ describe("Client", () => {
       await Bun.sleep(5);
       const vs = await client.voiceStates.cache.get("g1:u1");
       expect(vs).toBeDefined();
+      expect(vs).toBeInstanceOf(VoiceState);
     });
 
     test("VOICE_STATE_UPDATE ignores DM voice states (no guild_id)", async () => {
@@ -330,7 +409,7 @@ describe("Client", () => {
       expect(vs).toBe(null);
     });
 
-    test("USER_UPDATE caches user", async () => {
+    test("USER_UPDATE caches user as User", async () => {
       const client = createClient();
       dispatch(client, "USER_UPDATE", {
         id: "u1",
@@ -340,9 +419,32 @@ describe("Client", () => {
       await Bun.sleep(5);
       const user = await client.users.cache.get("u1");
       expect(user).toBeDefined();
+      expect(user).toBeInstanceOf(User);
+      expect(user!.username).toBe("updated");
     });
 
-    test("THREAD_CREATE caches thread as channel", async () => {
+    test("USER_UPDATE patches existing user in place", async () => {
+      const client = createClient();
+      dispatch(client, "READY", {
+        user: { id: "u1", username: "old", discriminator: "0" },
+        application: { id: "app-1" },
+      });
+      await Bun.sleep(5);
+      const user1 = await client.users.cache.get("u1");
+      expect(user1!.username).toBe("old");
+
+      dispatch(client, "USER_UPDATE", {
+        id: "u1",
+        username: "new",
+        discriminator: "0",
+      });
+      await Bun.sleep(5);
+      const user2 = await client.users.cache.get("u1");
+      expect(user2).toBe(user1);
+      expect(user2!.username).toBe("new");
+    });
+
+    test("THREAD_CREATE caches thread as Thread", async () => {
       const client = createClient();
       dispatch(client, "THREAD_CREATE", {
         id: "t-1",
@@ -350,8 +452,9 @@ describe("Client", () => {
         type: 11,
       });
       await Bun.sleep(5);
-      const thread = await client.channels.cache.get("t-1");
+      const thread = await client.threads.cache.get("t-1");
       expect(thread).toBeDefined();
+      expect(thread).toBeInstanceOf(Thread);
     });
 
     test("THREAD_DELETE removes thread", async () => {
@@ -360,7 +463,7 @@ describe("Client", () => {
       await Bun.sleep(5);
       dispatch(client, "THREAD_DELETE", { id: "t-1", guild_id: "g1" });
       await Bun.sleep(5);
-      expect(await client.channels.cache.get("t-1")).toBe(null);
+      expect(await client.threads.cache.get("t-1")).toBe(null);
     });
 
     test("emit fires dispatched event", () => {
@@ -369,6 +472,68 @@ describe("Client", () => {
       client.on("MESSAGE_CREATE", handler);
       dispatch(client, "MESSAGE_CREATE", { id: "m1" });
       expect(handler).toHaveBeenCalledWith({ id: "m1" });
+    });
+  });
+
+  describe("structure instance checks", () => {
+    test("all dispatch events produce correct structure instances", async () => {
+      const client = createClient();
+
+      dispatch(client, "READY", {
+        user: { id: "u1", username: "bot", discriminator: "0" },
+        application: { id: "app-1" },
+      });
+      dispatch(client, "GUILD_CREATE", {
+        id: "g1",
+        name: "Guild",
+        channels: [{ id: "c1", name: "general", type: 0 }],
+        members: [{ user: { id: "u2", username: "member", discriminator: "0" } }],
+        roles: [{ id: "r1", name: "Admin" }],
+        emojis: [{ id: "e1", name: "🎉" }],
+        voice_states: [],
+      });
+      dispatch(client, "MESSAGE_CREATE", {
+        id: "m1",
+        content: "hi",
+        channel_id: "c1",
+        author: { id: "u2", username: "member", discriminator: "0" },
+      });
+
+      await Bun.sleep(5);
+
+      expect(await client.users.cache.get("u1")).toBeInstanceOf(User);
+      expect(await client.guilds.cache.get("g1")).toBeInstanceOf(Guild);
+      expect(await client.channels.cache.get("c1")).toBeInstanceOf(Channel);
+      expect(await client.members.cache.get("g1:u2")).toBeInstanceOf(GuildMember);
+      expect(await client.roles.cache.get("g1:r1")).toBeInstanceOf(Role);
+      expect(await client.messages.cache.get("m1")).toBeInstanceOf(Message);
+    });
+
+    test("structures have working getters after hydration", async () => {
+      const client = createClient();
+      dispatch(client, "MESSAGE_CREATE", {
+        id: "m1",
+        content: "hello world",
+        channel_id: "c1",
+        author: { id: "u1", username: "test", discriminator: "0" },
+        timestamp: "2024-01-01T00:00:00.000Z",
+        edited_timestamp: null,
+        pinned: false,
+        tts: false,
+        mention_everyone: false,
+      });
+      await Bun.sleep(5);
+
+      const msg = await client.messages.cache.get("m1")!;
+      expect(msg).not.toBeNull();
+      expect(msg!.content).toBe("hello world");
+      expect(msg!.channelId).toBe("c1");
+      expect(msg!.authorId).toBe("u1");
+      expect(msg!.timestamp).toBe("2024-01-01T00:00:00.000Z");
+      expect(msg!.editedTimestamp).toBeNull();
+      expect(msg!.pinned).toBe(false);
+      expect(msg!.tts).toBe(false);
+      expect(msg!.mentionEveryone).toBe(false);
     });
   });
 });

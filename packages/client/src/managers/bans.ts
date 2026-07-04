@@ -4,13 +4,14 @@ import type { APIBan } from "@dbun/types";
 
 export class BanManager extends BaseManager<Ban> {
   async fetch(guildId: string, userId: string): Promise<Ban | null> {
-    const cached = await this.cache.get<APIBan>(`${guildId}:${userId}`);
-    if (cached) return new Ban(cached, this.context);
+    const key = `${guildId}:${userId}`;
+    const cached = await this.cache.get(key);
+    if (cached) return cached;
 
     const data = await this.rest.get<APIBan>(`/guilds/${guildId}/bans/${userId}`);
     if (!data) return null;
 
-    await this.cache.set(`${guildId}:${userId}`, data, this.namespace);
-    return new Ban(data, this.context);
+    await this.add(key, data);
+    return this.cache.get(key);
   }
 }

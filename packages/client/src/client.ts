@@ -1,9 +1,27 @@
 import { RESTClient, ApplicationCommandManager } from "@dbun/rest";
 import { ShardManager } from "@dbun/ws";
 import type { EncodingMode, CompressionMode } from "@dbun/ws";
-import { CacheManager, MemoryAdapter, type CacheAdapter } from "@dbun/cache";
+import {
+  HydratingCache,
+  CacheManager,
+  MemoryAdapter,
+  type CacheAdapter,
+} from "@dbun/cache";
 import { InteractionRouter } from "@dbun/interactions";
 import { DBunTracer, DBunMetrics } from "@dbun/observability";
+import {
+  Guild,
+  Channel,
+  Message,
+  User,
+  GuildMember,
+  Role,
+  Emoji,
+  VoiceState,
+  Ban,
+  Thread,
+  ThreadMember,
+} from "@dbun/structures";
 import type {
   GatewayIntentBits,
   APIGuild,
@@ -11,6 +29,7 @@ import type {
   APIMessage,
   APIUser,
   APIGuildMember,
+  APIRole,
   APIVoiceState,
   GatewayReadyDispatchData,
   GatewayGuildCreateDispatchData,
@@ -36,6 +55,8 @@ import type {
   GatewayThreadCreateDispatchData,
   GatewayThreadDeleteDispatchData,
   GatewayThreadListSyncDispatchData,
+  GatewayThreadMemberUpdateDispatchData,
+  GatewayThreadMembersUpdateDispatchData,
   GatewayStageInstanceCreateDispatchData,
   GatewayStageInstanceDeleteDispatchData,
 } from "@dbun/types";
@@ -43,6 +64,7 @@ import type { IPCAdapter, ShardRange, AssignmentStrategy } from "@dbun/ipc";
 import {
   GuildManager,
   ChannelManager,
+  ThreadManager,
   MessageManager,
   UserManager,
   GuildMemberManager,
@@ -65,6 +87,7 @@ export interface ClientCacheOptions {
   resources?: {
     guilds?: CacheResourceConfig;
     channels?: CacheResourceConfig;
+    threads?: CacheResourceConfig;
     users?: CacheResourceConfig;
     members?: CacheResourceConfig;
     messages?: CacheResourceConfig;
@@ -73,6 +96,7 @@ export interface ClientCacheOptions {
     stickers?: CacheResourceConfig;
     voiceStates?: CacheResourceConfig;
     bans?: CacheResourceConfig;
+    threadMembers?: CacheResourceConfig;
     presences?: CacheResourceConfig;
     stageInstances?: CacheResourceConfig;
     scheduledEvents?: CacheResourceConfig;
@@ -105,6 +129,8 @@ export interface ClientOptions {
     enabled?: boolean;
   };
   ipc?: ClientIPCOptions;
+  encoding?: EncodingMode;
+  compress?: CompressionMode;
 }
 
 export class Client {
@@ -125,14 +151,18 @@ export class Client {
   readonly emojis: EmojiManager;
   readonly voiceStates: VoiceStateManager;
   readonly bans: BanManager;
+  readonly threads: ThreadManager;
 
   private shardManager: ShardManager | null = null;
   private gatewayManager: import("@dbun/ipc").GatewayManager | null = null;
   private ready = false;
   private eventHandlers = new Map<keyof ClientEvents | string, ((...args: any[]) => void)[]>();
-  private managers: CacheManager[] = [];
+  private cacheInstances: HydratingCache<any>[] = [];
   private applicationId?: string;
   private ipcOptions?: ClientIPCOptions;
+  private threadMembersCache: HydratingCache<any>;
+  private encoding?: EncodingMode;
+  private compress?: CompressionMode;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   on<K extends keyof ClientEvents>(event: K, handler: (...args: ClientEvents[K]) => void): this;
@@ -169,13 +199,19 @@ export class Client {
     this.intents = options.intents;
     this.applicationId = options.applicationId;
     this.ipcOptions = options.ipc;
+    this.encoding = options.encoding ?? "json";
+    this.compress = options.compress ?? null;
 
     this.rest = new RESTClient({ token: options.token });
 
     const cacheOpts = options.cache;
     const adapterFactory = cacheOpts?.adapter ?? (() => new MemoryAdapter());
 
-    const createManager = (namespace: string): CacheManager => {
+    const createCache = <T>(
+      namespace: string,
+      hydrate: (data: unknown) => T,
+      partialHydrate?: (data: unknown) => unknown,
+    ): HydratingCache<T> => {
       const resourceConfig = cacheOpts?.resources?.[namespace as keyof typeof cacheOpts.resources];
       const strategyConfig = cacheOpts?.strategy?.[namespace];
       const merged = {
@@ -186,40 +222,61 @@ export class Client {
         merged.maxAge !== undefined || merged.max !== undefined
           ? { [namespace]: merged }
           : undefined;
-      const manager = new CacheManager({
-        adapter: adapterFactory(),
-        strategy,
+      const raw = new HydratingCache({
+        raw: new CacheManager({
+          adapter: adapterFactory(),
+          strategy,
+        }),
+        namespace,
+        hydrate,
+        partialHydrate,
       });
-      this.managers.push(manager);
-      return manager;
+      this.cacheInstances.push(raw);
+      return raw;
     };
 
-    this.guilds = new GuildManager(this.rest, createManager("guilds"), "guilds");
-    this.channels = new ChannelManager(this.rest, createManager("channels"), "channels");
-    this.messages = new MessageManager(this.rest, createManager("messages"), "messages");
-    this.users = new UserManager(this.rest, createManager("users"), "users");
-    this.members = new GuildMemberManager(this.rest, createManager("members"), "members");
-    this.roles = new RoleManager(this.rest, createManager("roles"), "roles");
-    this.emojis = new EmojiManager(this.rest, createManager("emojis"), "emojis");
-    this.voiceStates = new VoiceStateManager(
-      this.rest,
-      createManager("voiceStates"),
-      "voiceStates",
+    const guildCache = createCache("guilds", (d) => new Guild(d as APIGuild));
+    const channelCache = createCache("channels", (d) => new Channel(d as APIChannel));
+    const threadCache = createCache("threads", (d) => new Thread(d as APIChannel));
+    const messageCache = createCache("messages", (d) => new Message(d as APIMessage));
+    const userCache = createCache("users", (d) => new User(d as APIUser));
+    const memberCache = createCache("members", (d) => new GuildMember(d as APIGuildMember));
+    const roleCache = createCache("roles", (d) => new Role(d as APIRole));
+    const emojiCache = createCache("emojis", (d) => new Emoji(d as any));
+    const voiceStateCache = createCache("voiceStates", (d) => new VoiceState(d as APIVoiceState));
+    const banCache = createCache("bans", (d) => new Ban(d as any));
+    const threadMembersCache = createCache(
+      "threadMembers",
+      (d) => new ThreadMember(d as any),
+      (d) => new ThreadMember(d as any),
     );
-    this.bans = new BanManager(this.rest, createManager("bans"), "bans");
+
+    this.guilds = new GuildManager(this.rest, guildCache, "guilds");
+    this.channels = new ChannelManager(this.rest, channelCache, "channels");
+    this.messages = new MessageManager(this.rest, messageCache, "messages");
+    this.users = new UserManager(this.rest, userCache, "users");
+    this.members = new GuildMemberManager(this.rest, memberCache, "members");
+    this.roles = new RoleManager(this.rest, roleCache, "roles");
+    this.emojis = new EmojiManager(this.rest, emojiCache, "emojis");
+    this.voiceStates = new VoiceStateManager(this.rest, voiceStateCache, "voiceStates");
+    this.bans = new BanManager(this.rest, banCache, "bans");
+    this.threads = new ThreadManager(this.rest, threadCache, "threads");
+    this.threadMembersCache = threadMembersCache;
 
     const context = {
       rest: this.rest,
       cache: {
-        guilds: this.guilds.cache,
-        channels: this.channels.cache,
-        messages: this.messages.cache,
-        users: this.users.cache,
-        members: this.members.cache,
-        roles: this.roles.cache,
-        emojis: this.emojis.cache,
-        voiceStates: this.voiceStates.cache,
-        bans: this.bans.cache,
+        guilds: this.guilds.cache as any,
+        channels: this.channels.cache as any,
+        threads: this.threads.cache as any,
+        messages: this.messages.cache as any,
+        users: this.users.cache as any,
+        members: this.members.cache as any,
+        roles: this.roles.cache as any,
+        emojis: this.emojis.cache as any,
+        voiceStates: this.voiceStates.cache as any,
+        bans: this.bans.cache as any,
+        threadMembers: threadMembersCache as any,
       },
     };
 
@@ -232,6 +289,7 @@ export class Client {
     this.emojis.setContext(context);
     this.voiceStates.setContext(context);
     this.bans.setContext(context);
+    this.threads.setContext(context);
 
     this.interactions = new InteractionRouter();
     this.interactions.setRest(this.rest);
@@ -326,6 +384,8 @@ export class Client {
       token: this.token,
       intents: intentsValue,
       totalShards: 1,
+      encoding: this.encoding,
+      compress: this.compress,
     });
 
     this.shardManager.on("ready", (_shardId: number) => {
@@ -349,8 +409,8 @@ export class Client {
   }
 
   async destroy(): Promise<void> {
-    for (const manager of this.managers) {
-      await manager.stop();
+    for (const cache of this.cacheInstances) {
+      await cache.stop();
     }
     if (this.gatewayManager) {
       await this.gatewayManager.stop();
@@ -371,36 +431,32 @@ export class Client {
       case "READY": {
         const readyData = data as GatewayReadyDispatchData;
         this.applicationId ??= readyData.application.id;
-        this.users.cache.set(readyData.user.id, readyData.user, "users").catch(() => {});
+        this.users.add(readyData.user.id, readyData.user).catch(() => {});
         break;
       }
       case "GUILD_CREATE": {
         const guild = data as GatewayGuildCreateDispatchData;
-        this.guilds.cache.set(guild.id, guild as unknown as APIGuild, "guilds").catch(() => {});
+        this.guilds.add(guild.id, guild as unknown as APIGuild).catch(() => {});
         for (const channel of guild.channels) {
-          this.channels.cache.set(channel.id, channel, "channels").catch(() => {});
+          this.channels.add(channel.id, channel).catch(() => {});
         }
         for (const member of guild.members) {
-          this.members.cache
-            .set(`${guild.id}:${member.user!.id}`, member, "members")
-            .catch(() => {});
+          this.members.add(`${guild.id}:${member.user!.id}`, member).catch(() => {});
         }
         for (const role of guild.roles) {
-          this.roles.cache.set(`${guild.id}:${role.id}`, role, "roles").catch(() => {});
+          this.roles.add(`${guild.id}:${role.id}`, role).catch(() => {});
         }
         for (const emoji of guild.emojis) {
-          this.emojis.cache.set(`${guild.id}:${emoji.id!}`, emoji, "emojis").catch(() => {});
+          this.emojis.add(`${guild.id}:${emoji.id!}`, emoji).catch(() => {});
         }
         for (const vs of guild.voice_states ?? []) {
-          this.voiceStates.cache
-            .set(`${guild.id}:${vs.user_id}`, vs, "voiceStates")
-            .catch(() => {});
+          this.voiceStates.add(`${guild.id}:${vs.user_id}`, vs).catch(() => {});
         }
         break;
       }
       case "GUILD_UPDATE": {
         const guild = data as GatewayGuildUpdateDispatchData;
-        this.guilds.cache.set(guild.id, guild as unknown as APIGuild, "guilds").catch(() => {});
+        this.guilds.add(guild.id, guild as unknown as APIGuild).catch(() => {});
         break;
       }
       case "GUILD_DELETE": {
@@ -416,7 +472,7 @@ export class Client {
       case "CHANNEL_CREATE":
       case "CHANNEL_UPDATE": {
         const channel = data as GatewayChannelCreateDispatchData as APIChannel;
-        this.channels.cache.set(channel.id, channel, "channels").catch(() => {});
+        this.channels.add(channel.id, channel).catch(() => {});
         break;
       }
       case "CHANNEL_DELETE": {
@@ -426,13 +482,13 @@ export class Client {
       }
       case "MESSAGE_CREATE": {
         const msg = data as GatewayMessageCreateDispatchData;
-        this.messages.cache.set(msg.id, msg as unknown as APIMessage, "messages").catch(() => {});
+        this.messages.add(msg.id, msg as unknown as APIMessage).catch(() => {});
         break;
       }
       case "MESSAGE_UPDATE": {
         const msg = data as GatewayMessageUpdateDispatchData;
         if (msg.id) {
-          this.messages.cache.set(msg.id, msg as unknown as APIMessage, "messages").catch(() => {});
+          this.messages.add(msg.id, msg as unknown as APIMessage).catch(() => {});
         }
         break;
       }
@@ -450,7 +506,7 @@ export class Client {
       }
       case "GUILD_BAN_ADD": {
         const ban = data as GatewayGuildBanAddDispatchData;
-        this.bans.cache.set(`${ban.guild_id}:${ban.user.id}`, ban, "bans").catch(() => {});
+        this.bans.add(`${ban.guild_id}:${ban.user.id}`, ban).catch(() => {});
         break;
       }
       case "GUILD_BAN_REMOVE": {
@@ -460,26 +516,59 @@ export class Client {
       }
       case "THREAD_CREATE":
       case "THREAD_UPDATE": {
-        const thread = data as GatewayThreadCreateDispatchData as APIChannel;
-        this.channels.cache.set(thread.id, thread, "channels").catch(() => {});
+        const thread = data as GatewayThreadCreateDispatchData;
+        this.channels.add(thread.id, thread).catch(() => {});
+        this.threads.add(thread.id, thread).catch(() => {});
+        if (thread.member) {
+          const member = thread.member;
+          this.threadMembersCache
+            .add(`${thread.id}:${member.user_id!}`, member)
+            .catch(() => {});
+        }
         break;
       }
       case "THREAD_DELETE": {
         const thread = data as GatewayThreadDeleteDispatchData;
         this.channels.cache.delete(thread.id).catch(() => {});
+        this.threads.cache.delete(thread.id).catch(() => {});
         break;
       }
       case "THREAD_LIST_SYNC": {
         const sync = data as GatewayThreadListSyncDispatchData;
         for (const thread of sync.threads) {
-          this.channels.cache.set(thread.id, thread, "channels").catch(() => {});
+          this.channels.add(thread.id, thread).catch(() => {});
+          this.threads.add(thread.id, thread).catch(() => {});
+        }
+        for (const member of sync.members) {
+          this.threadMembersCache
+            .add(`${member.id!}:${member.user_id!}`, member)
+            .catch(() => {});
+        }
+        break;
+      }
+      case "THREAD_MEMBER_UPDATE": {
+        const tm = data as GatewayThreadMemberUpdateDispatchData;
+        this.threadMembersCache
+          .add(`${tm.id!}:${tm.user_id!}`, tm)
+          .catch(() => {});
+        break;
+      }
+      case "THREAD_MEMBERS_UPDATE": {
+        const tmu = data as GatewayThreadMembersUpdateDispatchData;
+        for (const member of tmu.added_members ?? []) {
+          this.threadMembersCache
+            .add(`${tmu.id}:${member.user_id!}`, member)
+            .catch(() => {});
+        }
+        for (const removedId of tmu.removed_member_ids ?? []) {
+          this.threadMembersCache.delete(`${tmu.id}:${removedId}`).catch(() => {});
         }
         break;
       }
       case "STAGE_INSTANCE_CREATE":
       case "STAGE_INSTANCE_UPDATE": {
         const instance = data as GatewayStageInstanceCreateDispatchData;
-        this.channels.cache.set(instance.id, instance, "channels").catch(() => {});
+        this.channels.add(instance.id, instance).catch(() => {});
         break;
       }
       case "STAGE_INSTANCE_DELETE": {
@@ -489,18 +578,17 @@ export class Client {
       }
       case "GUILD_MEMBER_ADD": {
         const member = data as GatewayGuildMemberAddDispatchData;
-        this.members.cache
-          .set(`${member.guild_id}:${member.user!.id}`, member, "members")
+        this.members
+          .add(`${member.guild_id}:${member.user!.id}`, member)
           .catch(() => {});
         break;
       }
       case "GUILD_MEMBER_UPDATE": {
         const member = data as GatewayGuildMemberUpdateDispatchData;
-        this.members.cache
-          .set(
+        this.members
+          .add(
             `${member.guild_id}:${member.user.id}`,
             member as unknown as APIGuildMember,
-            "members",
           )
           .catch(() => {});
         break;
@@ -512,15 +600,15 @@ export class Client {
       }
       case "GUILD_ROLE_CREATE": {
         const roleData = data as GatewayGuildRoleCreateDispatchData;
-        this.roles.cache
-          .set(`${roleData.guild_id}:${roleData.role.id}`, roleData.role, "roles")
+        this.roles
+          .add(`${roleData.guild_id}:${roleData.role.id}`, roleData.role)
           .catch(() => {});
         break;
       }
       case "GUILD_ROLE_UPDATE": {
         const roleData = data as GatewayGuildRoleUpdateDispatchData;
-        this.roles.cache
-          .set(`${roleData.guild_id}:${roleData.role.id}`, roleData.role, "roles")
+        this.roles
+          .add(`${roleData.guild_id}:${roleData.role.id}`, roleData.role)
           .catch(() => {});
         break;
       }
@@ -532,8 +620,8 @@ export class Client {
       case "GUILD_EMOJIS_UPDATE": {
         const emojiData = data as GatewayGuildEmojisUpdateDispatchData;
         for (const emoji of emojiData.emojis) {
-          this.emojis.cache
-            .set(`${emojiData.guild_id}:${emoji.id!}`, emoji, "emojis")
+          this.emojis
+            .add(`${emojiData.guild_id}:${emoji.id!}`, emoji)
             .catch(() => {});
         }
         break;
@@ -541,15 +629,15 @@ export class Client {
       case "VOICE_STATE_UPDATE": {
         const vs = data as GatewayVoiceStateUpdateDispatchData;
         if (vs.guild_id) {
-          this.voiceStates.cache
-            .set(`${vs.guild_id}:${vs.user_id}`, vs as unknown as APIVoiceState, "voiceStates")
+          this.voiceStates
+            .add(`${vs.guild_id}:${vs.user_id}`, vs as unknown as APIVoiceState)
             .catch(() => {});
         }
         break;
       }
       case "USER_UPDATE": {
         const user = data as GatewayUserUpdateDispatchData;
-        this.users.cache.set(user.id, user as unknown as APIUser, "users").catch(() => {});
+        this.users.add(user.id, user as unknown as APIUser).catch(() => {});
         break;
       }
     }

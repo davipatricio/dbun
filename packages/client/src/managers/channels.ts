@@ -4,13 +4,13 @@ import type { APIChannel } from "@dbun/types";
 
 export class ChannelManager extends BaseManager<Channel> {
   async fetch(id: string): Promise<Channel | null> {
-    const cached = await this.cache.get<APIChannel>(id);
-    if (cached) return new Channel(cached, this.context);
+    const cached = await this.cache.get(id);
+    if (cached) return cached;
 
     const data = await this.rest.get<APIChannel>(`/channels/${id}`);
     if (!data) return null;
 
-    await this.cache.set(id, data, this.namespace);
-    return new Channel(data, this.context);
+    await this.add(id, data);
+    return this.cache.get(id);
   }
 }

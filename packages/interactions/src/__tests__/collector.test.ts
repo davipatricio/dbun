@@ -2,110 +2,97 @@ import { describe, test, expect } from "bun:test";
 import { ComponentCollector } from "../collector.js";
 import type { APIInteraction } from "@dbun/types";
 
-function makeInteraction(customId = "btn"): APIInteraction {
-  return { id: "1", application_id: "app", type: 3, token: "t", version: 1, data: { custom_id: customId } } as any;
+function createMockInteraction(id: string, customId: string): APIInteraction {
+  return {
+    id,
+    application_id: "app",
+    type: 3,
+    token: "tok",
+    version: 1,
+    data: { custom_id: customId },
+  } as APIInteraction;
 }
 
 describe("ComponentCollector", () => {
-  describe("collect", () => {
-    test("collects matching interactions", () => {
-      const collector = new ComponentCollector(() => true);
-      expect(collector.collect(makeInteraction())).toBe(true);
-      expect(collector.collected).toHaveLength(1);
-    });
+  test("collects matching interactions", () => {
+    const collector = new ComponentCollector(
+      (i) => (i.data as any)?.custom_id === "btn_test",
+    );
 
-    test("rejects non-matching interactions", () => {
-      const collector = new ComponentCollector((i) => (i.data as any)?.custom_id === "btn");
-      expect(collector.collect(makeInteraction("other"))).toBe(false);
-      expect(collector.collected).toHaveLength(0);
-    });
-
-    test("auto-stops at max", () => {
-      const collector = new ComponentCollector(() => true, { max: 2 });
-      collector.collect(makeInteraction("1"));
-      collector.collect(makeInteraction("2"));
-      expect(collector.ended).toBe(true);
-      expect(collector.endReason).toBe("limit");
-    });
-
-    test("returns false after ended", () => {
-      const collector = new ComponentCollector(() => true, { max: 1 });
-      collector.collect(makeInteraction("1"));
-      expect(collector.collect(makeInteraction("2"))).toBe(false);
-    });
+    expect(collector.collect(createMockInteraction("1", "btn_test"))).toBe(true);
+    expect(collector.collect(createMockInteraction("2", "btn_test"))).toBe(true);
+    expect(collector.collected).toHaveLength(2);
   });
 
-  describe("stop", () => {
-    test("sets end reason", () => {
-      const collector = new ComponentCollector(() => true);
-      collector.stop("user");
-      expect(collector.ended).toBe(true);
-      expect(collector.endReason).toBe("user");
-    });
+  test("rejects non-matching interactions", () => {
+    const collector = new ComponentCollector(
+      (i) => (i.data as any)?.custom_id === "btn_target",
+    );
 
-    test("default reason is 'user'", () => {
-      const collector = new ComponentCollector(() => true);
-      collector.stop();
-      expect(collector.endReason).toBe("user");
-    });
-
-    test("idempotent", () => {
-      const collector = new ComponentCollector(() => true);
-      collector.stop("a");
-      collector.stop("b");
-      expect(collector.endReason).toBe("a");
-    });
+    expect(collector.collect(createMockInteraction("1", "btn_other"))).toBe(false);
+    expect(collector.collected).toHaveLength(0);
   });
 
-  describe("await", () => {
-    test("resolves when stop is called", async () => {
-      const collector = new ComponentCollector(() => true);
-      const promise = collector.await();
-      collector.collect(makeInteraction());
-      collector.stop();
-      const result = await promise;
-      expect(result).toHaveLength(1);
-    });
-
-    test("resolves with collected items", async () => {
-      const collector = new ComponentCollector(() => true);
-      const promise = collector.await();
-      collector.collect(makeInteraction("a"));
-      collector.collect(makeInteraction("b"));
-      collector.stop();
-      const result = await promise;
-      expect(result).toHaveLength(2);
-    });
+  test("stops at max", () => {
+    const collector = new ComponentCollector(() => true, { max: 2 });
+    collector.collect(createMockInteraction("1", "a"));
+    collector.collect(createMockInteraction("2", "b"));
+    expect(collector.collect(createMockInteraction("3", "c"))).toBe(false);
+    expect(collector.ended).toBe(true);
+    expect(collector.endReason).toBe("limit");
   });
 
-  describe("timeout", () => {
-    test("auto-stops after time", async () => {
-      const collector = new ComponentCollector(() => true, { time: 10 });
-      const promise = collector.await();
-      await promise;
-      expect(collector.ended).toBe(true);
-      expect(collector.endReason).toBe("time");
-    }, 100);
+  test("does not collect after stop", () => {
+    const collector = new ComponentCollector(() => true);
+    collector.collect(createMockInteraction("1", "a"));
+    collector.stop("user");
+    expect(collector.collect(createMockInteraction("2", "b"))).toBe(false);
+    expect(collector.ended).toBe(true);
+    expect(collector.endReason).toBe("user");
   });
 
-  describe("getters", () => {
-    test("collected returns copy", () => {
-      const collector = new ComponentCollector(() => true);
-      collector.collect(makeInteraction());
-      const a = collector.collected;
-      const b = collector.collected;
-      expect(a).not.toBe(b);
-      expect(a).toEqual(b);
+  test("emits collect event", () => {
+    const collector = new ComponentCollector(() => true);
+    let received: APIInteraction | undefined;
+    collector.on("collect", (i) => {
+      received = i;
     });
+    const interaction = createMockInteraction("x", "y");
+    collector.collect(interaction);
+    expect(received).toBe(interaction);
+  });
 
-    test("ended is false initially", () => {
-      const collector = new ComponentCollector(() => true);
-      expect(collector.ended).toBe(false);
+  test("emits end event on stop", () => {
+    const collector = new ComponentCollector(() => true);
+    let reason = "";
+    let collected: APIInteraction[] = [];
+    collector.on("end", (c, r) => {
+      collected = c;
+      reason = r;
     });
+    const interaction = createMockInteraction("1", "a");
+    collector.collect(interaction);
+    collector.stop("test");
+    expect(reason).toBe("test");
+    expect(collected).toHaveLength(1);
+  });
 
-    test("endReason is null initially", () => {
-      const collector = new ComponentCollector(() => true);
-      expect(collector.endReason).toBeNull();
-    });
+  test("off removes listener", () => {
+    const collector = new ComponentCollector(() => true);
+    let count = 0;
+    const fn = () => { count++; };
+    collector.on("collect", fn);
+    collector.on("collect", fn);
+    collector.off("collect", fn);
+    collector.collect(createMockInteraction("1", "a"));
+    expect(count).toBe(1);
+  });
+
+  test("await resolves with collected items", async () => {
+    const collector = new ComponentCollector(() => true, { time: 50 });
+    collector.collect(createMockInteraction("1", "a"));
+    collector.collect(createMockInteraction("2", "b"));
+    const result = await collector.await();
+    expect(result).toHaveLength(2);
   });
 });

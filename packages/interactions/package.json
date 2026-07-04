@@ -21,6 +21,7 @@
     "lint": "oxlint src",
     "fmt": "oxfmt src",
     "typecheck": "tsgo --noEmit",
+    "typecheck:examples": "tsc --noEmit -p tsconfig.examples.json",
     "clean": "rm -rf dist .turbo",
     "test": "bun test"
   },

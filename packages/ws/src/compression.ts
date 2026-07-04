@@ -1,6 +1,28 @@
 import * as zlib from "node:zlib";
 
-export type CompressionMode = "zlib-stream" | "zstd-stream" | null;
+export type CompressionMode =
+  | "zlib-stream"
+  | "zstd-stream"
+  | "zlib-payload"
+  | "none"
+  | false
+  | null;
+
+export function isCompressionMode(value: unknown): value is CompressionMode {
+  return (
+    value === null ||
+    value === false ||
+    value === "zlib-stream" ||
+    value === "zstd-stream" ||
+    value === "zlib-payload" ||
+    value === "none"
+  );
+}
+
+export function normalizeCompressionMode(mode: CompressionMode): CompressionMode {
+  if (mode === false || mode === "none") return null;
+  return mode;
+}
 
 export interface Decompressor {
   decompress(data: Buffer): Buffer;
@@ -9,12 +31,24 @@ export interface Decompressor {
 }
 
 export function createDecompressor(mode: CompressionMode): Decompressor | null {
-  if (mode === "zlib-stream") return new ZlibStreamDecompressor();
-  if (mode === "zstd-stream") return new ZstdStreamDecompressor();
+  const normalized = normalizeCompressionMode(mode);
+  if (normalized === "zlib-stream") return new ZlibStreamDecompressor();
+  if (normalized === "zlib-payload") return new ZlibPayloadDecompressor();
+  if (normalized === "zstd-stream") return new ZstdStreamDecompressor();
   return null;
 }
 
 const ZLIB_SUFFIX = Buffer.from([0x00, 0x00, 0xff, 0xff]);
+
+export class ZlibPayloadDecompressor implements Decompressor {
+  decompress(data: Buffer): Buffer {
+    return zlib.inflateSync(data, { finishZlib: true });
+  }
+
+  reset(): void {}
+
+  destroy(): void {}
+}
 
 class ZlibStreamDecompressor implements Decompressor {
   private inflate: zlib.Inflate;

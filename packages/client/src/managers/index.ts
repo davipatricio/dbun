@@ -1,6 +1,7 @@
 export { BaseManager } from "./base.js";
 export { GuildManager } from "./guilds.js";
 export { ChannelManager } from "./channels.js";
+export { ThreadManager } from "./threads.js";
 export { MessageManager } from "./messages.js";
 export { UserManager } from "./users.js";
 export { GuildMemberManager } from "./members.js";

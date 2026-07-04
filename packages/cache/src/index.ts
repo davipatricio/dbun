@@ -7,3 +7,11 @@ export { RedisAdapter } from "./adapters/redis.js";
 export type { RedisAdapterOptions } from "./adapters/redis.js";
 export { CacheManager, type CacheManagerOptions } from "./cache-manager.js";
 export type { CacheStrategy, CacheStrategyOptions } from "./strategy.js";
+export {
+  HydratingCache,
+  isPartialEntry,
+  getPartialValue,
+  getFullValue,
+  type HydratingCacheOptions,
+  type CacheEnvelope,
+} from "./hydrating-cache.js";
